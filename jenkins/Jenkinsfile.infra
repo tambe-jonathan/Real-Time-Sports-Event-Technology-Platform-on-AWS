@@ -1,0 +1,57 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION     = 'us-east-1'
+        TF_DIR         = 'infrastructure/environments/dev'
+    }
+
+    stages {
+        stage('Checkout Infrastructure Code') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Terraform Init & Validate') {
+            steps {
+                dir("${TF_DIR}") {
+                    sh 'terraform init'
+                    sh 'terraform validate'
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir("${TF_DIR}") {
+                    // Saves the execution plan to a file
+                    sh 'terraform plan -out=tfinfra.plan'
+                }
+            }
+        }
+
+        stage('Approval Gate') {
+            steps {
+                timeout(time: 30, unit: 'MINUTES') {
+                    input message: 'Apply infrastructure changes to AWS?', ok: 'Apply'
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                dir("${TF_DIR}") {
+                    // Applies the exact plan approved above
+                    sh 'terraform apply -input=false tfinfra.plan'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
