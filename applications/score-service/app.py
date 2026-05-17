@@ -5,7 +5,7 @@ app=Flask(__name__)
 @app.route('/score',methods=['POST'])
 def score():
 
-    data=request.json
+    data=request.json 
 
     return jsonify({
         "message":"score received",
