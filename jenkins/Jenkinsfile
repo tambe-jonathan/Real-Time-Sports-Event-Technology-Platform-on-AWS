@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION      = 'us-east-1'
-        AWS_ACCOUNT_ID  = 'YOUR_AWS_ACCOUNT_ID' // Replace with your actual AWS Account ID
+        AWS_REGION      = 'us-east-1' //  EDIT THIS: If using a different region
+        AWS_ACCOUNT_ID  = '186052668806' //  EDIT THIS: Replace with your actual 12-digit AWS Account ID
         ECR_REGISTRY    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         TF_APP_DIR      = 'infrastructure/environments/dev'
         
@@ -38,7 +38,8 @@ pipeline {
 
         stage('SonarQube Quality Gate') {
             steps {
-                withSonarQubeEnv('SonarQube-Server') {
+                //  EDIT THIS: Must match the exact name given in Manage Jenkins -> System
+                withSonarQubeEnv('sonar-token') {
                     sh 'sonar-scanner'
                 }
                 timeout(time: 10, unit: 'MINUTES') {
@@ -72,13 +73,19 @@ pipeline {
 
         stage('Push Images to ECR') {
             steps {
-                script {
-                    sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
-                    
-                    def services = [SVC_1, SVC_2, SVC_3]
-                    for (svc in services) {
-                        sh "docker tag ${svc}:${IMAGE_TAG} ${ECR_REGISTRY}/${svc}:${IMAGE_TAG}"
-                        sh "docker push ${ECR_REGISTRY}/${svc}:${IMAGE_TAG}"
+                //  Injected your stored AWS credentials secure token block
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: 'aws-credentials'
+                ]]) {
+                    script {
+                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+                        
+                        def services = [SVC_1, SVC_2, SVC_3]
+                        for (svc in services) {
+                            sh "docker tag ${svc}:${IMAGE_TAG} ${ECR_REGISTRY}/${svc}:${IMAGE_TAG}"
+                            sh "docker push ${ECR_REGISTRY}/${svc}:${IMAGE_TAG}"
+                        }
                     }
                 }
             }
@@ -86,10 +93,14 @@ pipeline {
 
         stage('Terraform Plan App Deploy') {
             steps {
-                dir("${TF_APP_DIR}") {
-                    sh 'terraform init'
-                    // Re-run plan specifically updating the app tags for ECS task definitions
-                    sh "terraform plan -var='score_image_tag=${IMAGE_TAG}' -var='athlete_image_tag=${IMAGE_TAG}' -var='leaderboard_image_tag=${IMAGE_TAG}' -out=tfapp.plan"
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: 'aws-credentials'
+                ]]) {
+                    dir("${TF_APP_DIR}") {
+                        sh 'terraform init'
+                        sh "terraform plan -var='score_image_tag=${IMAGE_TAG}' -var='athlete_image_tag=${IMAGE_TAG}' -var='leaderboard_image_tag=${IMAGE_TAG}' -out=tfapp.plan"
+                    }
                 }
             }
         }
@@ -104,8 +115,13 @@ pipeline {
 
         stage('Terraform Apply ECS Update') {
             steps {
-                dir("${TF_APP_DIR}") {
-                    sh 'terraform apply -input=false tfapp.plan'
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: 'aws-credentials'
+                ]]) {
+                    dir("${TF_APP_DIR}") {
+                        sh 'terraform apply -input=false tfapp.plan'
+                    }
                 }
             }
         }
@@ -113,7 +129,7 @@ pipeline {
         stage('Smoke Test') {
             steps {
                 echo 'Checking service availability...'
-                // Swap with your actual Application Load Balancer endpoint
+                //  EDIT THIS: Replace with your actual Application Load Balancer DNS output from Terraform
                 sh 'curl -f http://your-alb-dns-name/health || exit 1'
             }
         }
