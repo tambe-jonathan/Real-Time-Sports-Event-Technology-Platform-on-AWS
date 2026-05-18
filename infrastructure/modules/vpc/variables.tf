@@ -1,41 +1,24 @@
-resource "aws_vpc" "this" {
-
-  cidr_block = var.vpc_cidr
-
-  tags = {
-    Name=var.vpc_name
-  }
-
+variable "vpc_cidr" {
+  type        = string
+  description = "The CIDR block for the VPC"
 }
 
-resource "aws_internet_gateway" "igw" {
-
-  vpc_id=aws_vpc.this.id
-
+variable "vpc_name" {
+  type        = string
+  description = "The name tag for the VPC"
 }
 
-resource "aws_subnet" "public" {
-
-  count=length(var.public_subnets)
-
-  vpc_id=aws_vpc.this.id
-
-  cidr_block=var.public_subnets[count.index]
-
-  availability_zone=var.azs[count.index]
-
-  map_public_ip_on_launch=true
-
+variable "public_subnets" {
+  type        = list(string)
+  description = "List of public subnet CIDR blocks"
 }
 
-resource "aws_subnet" "private" {
+variable "private_subnets" {
+  type        = list(string)
+  description = "List of private subnet CIDR blocks"
+}
 
-  count=length(var.private_subnets)
-
-  vpc_id=aws_vpc.this.id
-
-  cidr_block=var.private_subnets[count.index]
-
-  availability_zone=var.azs[count.index]
-
+variable "azs" {
+  type        = list(string)
+  description = "List of availability zones"
 }

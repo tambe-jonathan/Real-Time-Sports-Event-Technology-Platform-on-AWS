@@ -1,41 +1,14 @@
-resource "aws_vpc" "this" {
-
-  cidr_block = var.vpc_cidr
-
-  tags = {
-    Name=var.vpc_name
-  }
-
+output "vpc_id" {
+  value       = aws_vpc.this.id
+  description = "The ID of the created VPC"
 }
 
-resource "aws_internet_gateway" "igw" {
-
-  vpc_id=aws_vpc.this.id
-
+output "public_subnets" {
+  value       = aws_subnet.public[*].id
+  description = "List of IDs of the public subnets"
 }
 
-resource "aws_subnet" "public" {
-
-  count=length(var.public_subnets)
-
-  vpc_id=aws_vpc.this.id
-
-  cidr_block=var.public_subnets[count.index]
-
-  availability_zone=var.azs[count.index]
-
-  map_public_ip_on_launch=true
-
-}
-
-resource "aws_subnet" "private" {
-
-  count=length(var.private_subnets)
-
-  vpc_id=aws_vpc.this.id
-
-  cidr_block=var.private_subnets[count.index]
-
-  availability_zone=var.azs[count.index]
-
+output "private_subnets" {
+  value       = aws_subnet.private[*].id
+  description = "List of IDs of the private subnets"
 }
