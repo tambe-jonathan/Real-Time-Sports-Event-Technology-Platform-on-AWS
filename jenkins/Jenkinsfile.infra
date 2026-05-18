@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION     = 'us-east-1'
-        TF_DIR         = 'infrastructure/environments/dev'
+        AWS_REGION = 'us-east-1' //  EDIT THIS: If your base state/infra uses a different region
+        TF_DIR     = 'infrastructure/environments/dev'
     }
 
     stages {
@@ -15,18 +15,29 @@ pipeline {
 
         stage('Terraform Init & Validate') {
             steps {
-                dir("${TF_DIR}") {
-                    sh 'terraform init'
-                    sh 'terraform validate'
+                //  Injected stored AWS credentials to authenticate with S3 Backends & APIs
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: 'aws-credentials'
+                ]]) {
+                    dir("${TF_DIR}") {
+                        sh 'terraform init'
+                        sh 'terraform validate'
+                    }
                 }
             }
         }
 
         stage('Terraform Plan') {
             steps {
-                dir("${TF_DIR}") {
-                    // Saves the execution plan to a file
-                    sh 'terraform plan -out=tfinfra.plan'
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: 'aws-credentials'
+                ]]) {
+                    dir("${TF_DIR}") {
+                        // Saves the execution plan safely to an artifact file
+                        sh 'terraform plan -out=tfinfra.plan'
+                    }
                 }
             }
         }
@@ -41,15 +52,27 @@ pipeline {
 
         stage('Terraform Apply') {
             steps {
-                dir("${TF_DIR}") {
-                    // Applies the exact plan approved above
-                    sh 'terraform apply -input=false tfinfra.plan'
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding', 
+                    credentialsId: 'aws-credentials'
+                ]]) {
+                    dir("${TF_DIR}") {
+                        // Applies the exact plan validated and approved above
+                        sh 'terraform apply -input=false tfinfra.plan'
+                    }
                 }
             }
         }
     }
 
     post {
+        success {
+            echo 'Foundational Infrastructure deployed successfully. Handing off orchestration to Application Pipeline...'
+            
+            //  AUTOMATED TRIGGER: Intercepts success state to trigger Pipeline #2
+            //  EDIT THIS: Replace 'EventPulse-App-Deployment' with your EXACT application pipeline job name in Jenkins
+            build job: 'EventPulse-App-Deployment', wait: false
+        }
         always {
             cleanWs()
         }
