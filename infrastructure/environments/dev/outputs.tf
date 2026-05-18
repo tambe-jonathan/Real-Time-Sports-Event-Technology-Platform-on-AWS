@@ -3,5 +3,5 @@ output "vpc_id" {
 }
 
 output "ecr_repository_urls" {
-  value = module.ecr.repository_urls
+  value = module.ecr.repo_urls
 }
