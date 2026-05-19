@@ -88,9 +88,10 @@ pipeline {
         stage('SonarQube Quality Gate') {
             agent any
             tools {
-                // This name must match the exact name you gave the scanner under Global Tool Configuration
-                sonarScanner 'sonar-scanner'
-            } // <--- Added the missing brace to close tools block
+                // 'sonar-runner' is the standard type ID registered by the Jenkins SonarQube plugin
+                // Ensure 'sonar-scanner' matches the exact Name you assigned in Global Tool Configuration
+                'sonar-runner' 'sonar-scanner'
+            }
             steps {
                 withSonarQubeEnv('sonar-token') {
                     sh 'sonar-scanner'
