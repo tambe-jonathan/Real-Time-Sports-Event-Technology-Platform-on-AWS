@@ -1,5 +1,5 @@
 pipeline {
-    agent none // Evaluated at the leaf-stage level
+    agent none // Evaluated at the leaf-stage level to maximize worker flexibility
 
     environment {
         AWS_REGION      = 'us-east-1'
@@ -38,6 +38,7 @@ pipeline {
                             . venv/bin/activate
                             pip install --upgrade pip
                             pip install -r requirements.txt
+                            pip install pytest
                             pytest
                         '''
                     }
@@ -56,6 +57,7 @@ pipeline {
                             . venv/bin/activate
                             pip install --upgrade pip
                             pip install -r requirements.txt
+                            pip install pytest
                             pytest
                         '''
                     }
@@ -74,6 +76,7 @@ pipeline {
                             . venv/bin/activate
                             pip install --upgrade pip
                             pip install -r requirements.txt
+                            pip install pytest
                             pytest
                         '''
                     }
@@ -184,12 +187,14 @@ pipeline {
 
     post {
         always {
-            cleanWs()
-            script {
-                def services = [SVC_1, SVC_2, SVC_3]
-                for (svc in services) {
-                    sh "docker rmi ${svc}:${IMAGE_TAG} || true"
-                    sh "docker rmi ${ECR_REGISTRY}/${svc}:${IMAGE_TAG} || true"
+            node { // Allocates an execution workspace context to clear cache & untag images cleanly
+                cleanWs()
+                script {
+                    def services = [SVC_1, SVC_2, SVC_3]
+                    for (svc in services) {
+                        sh "docker rmi ${svc}:${IMAGE_TAG} || true"
+                        sh "docker rmi ${ECR_REGISTRY}/${svc}:${IMAGE_TAG} || true"
+                    }
                 }
             }
         }
