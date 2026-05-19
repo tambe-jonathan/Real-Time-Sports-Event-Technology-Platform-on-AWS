@@ -86,18 +86,17 @@ pipeline {
         }
         
         stage('SonarQube Quality Gate') {
-            agent any
+            agent {
+                docker {
+                    image 'sonarsource/sonar-scanner-cli:latest'
+                    reuseNode true
+                }
+            }
             steps {
-                script {
-                    // Resolves the installation path from Global Tool Configuration
-                    // 'sonar-scanner' must match the exact Name you gave it there
-                    def scannerHome = tool name: 'sonar-scanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-                    
-                    withEnv(["PATH+SONAR=${scannerHome}/bin"]) {
-                        withSonarQubeEnv('sonar-token') {
-                            sh 'sonar-scanner'
-                        }
-                    }
+                withSonarQubeEnv('sonar-token') {
+                    // Running directly inside the sonarsource container 
+                    // where 'sonar-scanner' is available in the global path
+                    sh 'sonar-scanner'
                 }
                 timeout(time: 10, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
