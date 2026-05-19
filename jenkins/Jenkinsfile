@@ -2,12 +2,11 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION      = 'us-east-1' //  EDIT THIS: If using a different region
-        AWS_ACCOUNT_ID  = '186052668806' //  EDIT THIS: Replace with your actual 12-digit AWS Account ID
+        AWS_REGION      = 'us-east-1'
+        AWS_ACCOUNT_ID  = '186052668806'
         ECR_REGISTRY    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
         TF_APP_DIR      = 'infrastructure/environments/dev'
         
-        // Microservices mapping matching your structure
         SVC_1           = 'score-service'
         SVC_2           = 'athlete-service'
         SVC_3           = 'leaderboard-service'
@@ -25,20 +24,46 @@ pipeline {
         stage('Unit Tests') {
             parallel {
                 stage('Score Service Tests') {
-                    steps { sh 'cd applications/score-service && pip install -r requirements.txt && pytest' }
+                    steps {
+                        sh '''
+                            cd applications/score-service
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                            pytest
+                        '''
+                    }
                 }
                 stage('Athlete Service Tests') {
-                    steps { sh 'cd applications/athlete-service && pip install -r requirements.txt && pytest' }
+                    steps {
+                        sh '''
+                            cd applications/athlete-service
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                            pytest
+                        '''
+                    }
                 }
                 stage('Leaderboard Service Tests') {
-                    steps { sh 'cd applications/leaderboard-service && pip install -r requirements.txt && pytest' }
+                    steps {
+                        sh '''
+                            cd applications/leaderboard-service
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                            pytest
+                        '''
+                    }
                 }
             }
         }
 
         stage('SonarQube Quality Gate') {
             steps {
-                //  EDIT THIS: Must match the exact name given in Manage Jenkins -> System
                 withSonarQubeEnv('sonar-token') {
                     sh 'sonar-scanner'
                 }
@@ -73,11 +98,7 @@ pipeline {
 
         stage('Push Images to ECR') {
             steps {
-                //  Injected your stored AWS credentials secure token block
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding', 
-                    credentialsId: 'aws-credentials'
-                ]]) {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     script {
                         sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
                         
@@ -93,10 +114,7 @@ pipeline {
 
         stage('Terraform Plan App Deploy') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding', 
-                    credentialsId: 'aws-credentials'
-                ]]) {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_APP_DIR}") {
                         sh 'terraform init'
                         sh "terraform plan -var='score_image_tag=${IMAGE_TAG}' -var='athlete_image_tag=${IMAGE_TAG}' -var='leaderboard_image_tag=${IMAGE_TAG}' -out=tfapp.plan"
@@ -115,10 +133,7 @@ pipeline {
 
         stage('Terraform Apply ECS Update') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding', 
-                    credentialsId: 'aws-credentials'
-                ]]) {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_APP_DIR}") {
                         sh 'terraform apply -input=false tfapp.plan'
                     }
@@ -128,9 +143,14 @@ pipeline {
 
         stage('Smoke Test') {
             steps {
-                echo 'Checking service availability...'
-                //  EDIT THIS: Replace with your actual Application Load Balancer DNS output from Terraform
-                sh 'curl -f http://your-alb-dns-name/health || exit 1'
+                echo 'Checking path-based microservice health routes via ALB...'
+                // EDIT THIS: Ensure your routing rules map paths to the correct container target groups
+                sh '''
+                    ALB_HOST="your-alb-dns-name"
+                    curl -f http://${ALB_HOST}/score/health || exit 1
+                    curl -f http://${ALB_HOST}/athlete/health || exit 1
+                    curl -f http://${ALB_HOST}/leaderboard/health || exit 1
+                '''
             }
         }
     }
@@ -138,7 +158,14 @@ pipeline {
     post {
         always {
             cleanWs()
-            sh "docker rmi ${SVC_1}:${IMAGE_TAG} ${SVC_2}:${IMAGE_TAG} ${SVC_3}:${IMAGE_TAG} || true"
+            script {
+                // Completely purges both local and remote tag allocations to keep the worker node clean
+                def services = [SVC_1, SVC_2, SVC_3]
+                for (svc in services) {
+                    sh "docker rmi ${svc}:${IMAGE_TAG} || true"
+                    sh "docker rmi ${ECR_REGISTRY}/${svc}:${IMAGE_TAG} || true"
+                }
+            }
         }
     }
 }
