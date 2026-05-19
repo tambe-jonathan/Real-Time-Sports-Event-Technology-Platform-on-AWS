@@ -87,14 +87,17 @@ pipeline {
         
         stage('SonarQube Quality Gate') {
             agent any
-            tools {
-                // 'sonar-runner' is the standard type ID registered by the Jenkins SonarQube plugin
-                // Ensure 'sonar-scanner' matches the exact Name you assigned in Global Tool Configuration
-                'sonar-runner' 'sonar-scanner'
-            }
             steps {
-                withSonarQubeEnv('sonar-token') {
-                    sh 'sonar-scanner'
+                script {
+                    // Resolves the installation path from Global Tool Configuration
+                    // 'sonar-scanner' must match the exact Name you gave it there
+                    def scannerHome = tool name: 'sonar-scanner', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
+                    
+                    withEnv(["PATH+SONAR=${scannerHome}/bin"]) {
+                        withSonarQubeEnv('sonar-token') {
+                            sh 'sonar-scanner'
+                        }
+                    }
                 }
                 timeout(time: 10, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
