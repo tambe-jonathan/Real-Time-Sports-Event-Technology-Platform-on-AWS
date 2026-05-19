@@ -2,8 +2,9 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'us-east-1'
-        TF_DIR     = 'infrastructure/environments/dev'
+        AWS_REGION       = 'us-east-1'
+        TF_BOOTSTRAP_DIR = 'infrastructure/bootstrap' // Path to your bootstrap folder
+        TF_DIR           = 'infrastructure/environments/dev'
     }
 
     stages {
@@ -13,25 +14,25 @@ pipeline {
             }
         }
 
-        stage('Bootstrap Terraform Backend') {
+        stage('Terraform Bootstrap Backend') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
-                    // Navigate to where your bootstrap file lives and execute it
-                    // Assuming it's a shell script located in your root or infrastructure folder
-                    sh '''
-                        chmod +x bootstrap/start-backend.sh
-                        ./bootstrap/start-backend.sh
-                    '''
+                    dir("${TF_BOOTSTRAP_DIR}") {
+                        echo 'Initializing and applying local state bootstrap infrastructure...'
+                        sh 'terraform init'
+                        sh 'terraform validate'
+                        // Auto-approving here ensures it builds the backend resources without hanging
+                        sh 'terraform apply -auto-approve'
+                    }
                 }
             }
         }
 
-        stage('Terraform Init & Validate') {
+        stage('Terraform Init & Validate Core') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_DIR}") {
-                        // Now that the bootstrap stage has guaranteed the S3 bucket exists, 
-                        // init will successfully connect to the remote backend
+                        echo 'Initializing core infrastructure using the newly bootstrapped remote S3 backend...'
                         sh 'terraform init'
                         sh 'terraform validate'
                     }
@@ -39,7 +40,7 @@ pipeline {
             }
         }
 
-        stage('Terraform Plan') {
+        stage('Terraform Plan Core') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_DIR}") {
@@ -63,7 +64,7 @@ pipeline {
             }
         }
 
-        stage('Terraform Apply') {
+        stage('Terraform Apply Core') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_DIR}") {
