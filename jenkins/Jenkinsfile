@@ -90,6 +90,7 @@ pipeline {
             tools {
                 // This name must match the exact name you gave the scanner under Global Tool Configuration
                 sonarScanner 'sonar-scanner'
+            } // <--- Added the missing brace to close tools block
             steps {
                 withSonarQubeEnv('sonar-token') {
                     sh 'sonar-scanner'
@@ -189,12 +190,10 @@ pipeline {
         }
     }
 
-   post {
+    post {
         always {
-            // Using agent any at this block level gives the post steps the workspace context they need
             script {
                 node {
-                    // Inside a script block, naked node {} is perfectly valid syntax to catch an available executor
                     cleanWs()
                     
                     def services = [SVC_1, SVC_2, SVC_3]
