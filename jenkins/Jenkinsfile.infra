@@ -9,6 +9,8 @@ pipeline {
         AWS_REGION       = 'us-east-1'
         TF_BOOTSTRAP_DIR = 'infrastructure/bootstrap' 
         TF_DIR           = 'infrastructure/environments/dev'
+        // Set to 'true' only if deploying to a completely brand-new AWS account/region
+        RUN_BOOTSTRAP    = 'false' 
     }
 
     stages {
@@ -19,19 +21,15 @@ pipeline {
         }
 
         stage('Terraform Bootstrap Backend') {
+            when {
+                environment name: 'RUN_BOOTSTRAP', value: 'true'
+            }
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_BOOTSTRAP_DIR}") {
                         echo 'Initializing and applying local state bootstrap infrastructure...'
-                        
-                        // Prevents interactive hangs if a variable is missing
                         sh 'terraform init -input=false'
-                        
-                        // Enveloping validation with verbose logs to uncover the exact bottleneck
-                        withEnv(["TF_LOG=DEBUG"]) {
-                            sh 'terraform validate'
-                        }
-                        
+                        sh 'terraform validate'
                         sh 'terraform apply -auto-approve -input=false'
                     }
                 }
