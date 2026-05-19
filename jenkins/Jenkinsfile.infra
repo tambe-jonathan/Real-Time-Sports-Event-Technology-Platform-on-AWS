@@ -13,10 +13,25 @@ pipeline {
             }
         }
 
+        stage('Bootstrap Terraform Backend') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    // Navigate to where your bootstrap file lives and execute it
+                    // Assuming it's a shell script located in your root or infrastructure folder
+                    sh '''
+                        chmod +x bootstrap/start-backend.sh
+                        ./bootstrap/start-backend.sh
+                    '''
+                }
+            }
+        }
+
         stage('Terraform Init & Validate') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_DIR}") {
+                        // Now that the bootstrap stage has guaranteed the S3 bucket exists, 
+                        // init will successfully connect to the remote backend
                         sh 'terraform init'
                         sh 'terraform validate'
                     }
@@ -28,7 +43,6 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_DIR}") {
-                        // Injects safe bootstrap mocks to establish the structural resources cleanly
                         sh '''
                             terraform plan \
                             -var='score_image_tag=vInitial' \
