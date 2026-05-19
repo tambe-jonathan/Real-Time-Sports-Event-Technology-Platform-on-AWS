@@ -2,7 +2,7 @@ pipeline {
     agent any
     
     tools {
-        terraform 'terraform' // Wraps the tool correctly so Jenkins links its binary path
+        terraform 'terraform' // Links the verified Linux binary path
     }
 
     environment {
@@ -23,9 +23,16 @@ pipeline {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_BOOTSTRAP_DIR}") {
                         echo 'Initializing and applying local state bootstrap infrastructure...'
-                        sh 'terraform init'
-                        sh 'terraform validate'
-                        sh 'terraform apply -auto-approve'
+                        
+                        // Prevents interactive hangs if a variable is missing
+                        sh 'terraform init -input=false'
+                        
+                        // Enveloping validation with verbose logs to uncover the exact bottleneck
+                        withEnv(["TF_LOG=DEBUG"]) {
+                            sh 'terraform validate'
+                        }
+                        
+                        sh 'terraform apply -auto-approve -input=false'
                     }
                 }
             }
@@ -36,7 +43,7 @@ pipeline {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_DIR}") {
                         echo 'Initializing core infrastructure using the newly bootstrapped remote S3 backend...'
-                        sh 'terraform init'
+                        sh 'terraform init -input=false'
                         sh 'terraform validate'
                     }
                 }
@@ -49,6 +56,7 @@ pipeline {
                     dir("${TF_DIR}") {
                         sh '''
                             terraform plan \
+                            -input=false \
                             -var='score_image_tag=vInitial' \
                             -var='athlete_image_tag=vInitial' \
                             -var='leaderboard_image_tag=vInitial' \
