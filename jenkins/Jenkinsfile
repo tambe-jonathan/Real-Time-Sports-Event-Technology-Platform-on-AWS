@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent none // Evaluated at the individual stage level to maximize worker environment flexibility
 
     environment {
         AWS_REGION      = 'us-east-1'
@@ -16,12 +16,19 @@ pipeline {
 
     stages {
         stage('Checkout Code') {
+            agent any
             steps {
                 checkout scm
             }
         }
 
         stage('Unit Tests') {
+            agent {
+                docker {
+                    image 'python:3.11-slim'
+                    reuseNode true // Reuses the checked-out workspace folder context instantly
+                }
+            }
             parallel {
                 stage('Score Service Tests') {
                     steps {
@@ -63,6 +70,7 @@ pipeline {
         }
 
         stage('SonarQube Quality Gate') {
+            agent any
             steps {
                 withSonarQubeEnv('sonar-token') {
                     sh 'sonar-scanner'
@@ -74,6 +82,7 @@ pipeline {
         }
 
         stage('Build & Scan Docker Images') {
+            agent any
             parallel {
                 stage('Build Score Service') {
                     steps {
@@ -97,6 +106,7 @@ pipeline {
         }
 
         stage('Push Images to ECR') {
+            agent any
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     script {
@@ -113,6 +123,7 @@ pipeline {
         }
 
         stage('Terraform Plan App Deploy') {
+            agent any
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_APP_DIR}") {
@@ -124,6 +135,7 @@ pipeline {
         }
 
         stage('Manual Deployment Approval') {
+            agent any
             steps {
                 timeout(time: 1, unit: 'HOURS') {
                     input message: "Approve rolling update deployment for version ${IMAGE_TAG} to ECS?", ok: 'Deploy'
@@ -132,6 +144,7 @@ pipeline {
         }
 
         stage('Terraform Apply ECS Update') {
+            agent any
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
                     dir("${TF_APP_DIR}") {
@@ -142,9 +155,9 @@ pipeline {
         }
 
         stage('Smoke Test') {
+            agent any
             steps {
                 echo 'Checking path-based microservice health routes via ALB...'
-                // EDIT THIS: Ensure your routing rules map paths to the correct container target groups
                 sh '''
                     ALB_HOST="your-alb-dns-name"
                     curl -f http://${ALB_HOST}/score/health || exit 1
@@ -159,7 +172,6 @@ pipeline {
         always {
             cleanWs()
             script {
-                // Completely purges both local and remote tag allocations to keep the worker node clean
                 def services = [SVC_1, SVC_2, SVC_3]
                 for (svc in services) {
                     sh "docker rmi ${svc}:${IMAGE_TAG} || true"
