@@ -185,11 +185,14 @@ pipeline {
         }
     }
 
-    post {
+   post {
         always {
-            node { // Allocates an execution workspace context to clear cache & untag images cleanly
-                cleanWs()
-                script {
+            // Using agent any at this block level gives the post steps the workspace context they need
+            script {
+                node {
+                    // Inside a script block, naked node {} is perfectly valid syntax to catch an available executor
+                    cleanWs()
+                    
                     def services = [SVC_1, SVC_2, SVC_3]
                     for (svc in services) {
                         sh "docker rmi ${svc}:${IMAGE_TAG} || true"
