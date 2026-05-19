@@ -1,5 +1,5 @@
 pipeline {
-    agent none // Evaluated at the individual stage level to maximize worker environment flexibility
+    agent none // Evaluated at the leaf-stage level
 
     environment {
         AWS_REGION      = 'us-east-1'
@@ -23,14 +23,14 @@ pipeline {
         }
 
         stage('Unit Tests') {
-            agent {
-                docker {
-                    image 'python:3.11-slim'
-                    reuseNode true // Reuses the checked-out workspace folder context instantly
-                }
-            }
             parallel {
                 stage('Score Service Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11-slim'
+                            reuseNode true
+                        }
+                    }
                     steps {
                         sh '''
                             cd applications/score-service
@@ -43,6 +43,12 @@ pipeline {
                     }
                 }
                 stage('Athlete Service Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11-slim'
+                            reuseNode true
+                        }
+                    }
                     steps {
                         sh '''
                             cd applications/athlete-service
@@ -55,6 +61,12 @@ pipeline {
                     }
                 }
                 stage('Leaderboard Service Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11-slim'
+                            reuseNode true
+                        }
+                    }
                     steps {
                         sh '''
                             cd applications/leaderboard-service
@@ -82,21 +94,23 @@ pipeline {
         }
 
         stage('Build & Scan Docker Images') {
-            agent any
             parallel {
                 stage('Build Score Service') {
+                    agent any
                     steps {
                         sh "docker build -t ${SVC_1}:${IMAGE_TAG} applications/${SVC_1}"
                         sh "trivy image --exit-code 1 --severity CRITICAL ${SVC_1}:${IMAGE_TAG}"
                     }
                 }
                 stage('Build Athlete Service') {
+                    agent any
                     steps {
                         sh "docker build -t ${SVC_2}:${IMAGE_TAG} applications/${SVC_2}"
                         sh "trivy image --exit-code 1 --severity CRITICAL ${SVC_2}:${IMAGE_TAG}"
                     }
                 }
                 stage('Build Leaderboard Service') {
+                    agent any
                     steps {
                         sh "docker build -t ${SVC_3}:${IMAGE_TAG} applications/${SVC_3}"
                         sh "trivy image --exit-code 1 --severity CRITICAL ${SVC_3}:${IMAGE_TAG}"
