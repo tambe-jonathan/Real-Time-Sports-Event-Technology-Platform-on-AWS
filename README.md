@@ -265,9 +265,9 @@ Monitoring:
 ## Clone Repository
 
 ```bash
-git clone https://github.com/tambe-jonathan/EventPulse.git
+git clone https://github.com/tambe-jonathan/Real-Time-Sports-Event-Technology-Platform-on-AWS.git
 
-cd EventPulse
+cd Real-Time-Sports-Event-Technology-Platform-on-AWS
 ```
 
 ---
