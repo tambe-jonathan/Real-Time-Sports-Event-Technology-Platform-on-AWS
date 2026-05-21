@@ -1,0 +1,12 @@
+variable "cluster_name" { type = string }
+variable "vpc_id" { type = string }
+variable "private_subnets" { type = list(string) }
+variable "public_subnets" { type = list(string) }
+variable "security_group_id" { type = string }
+variable "execution_role_arn" { type = string }
+variable "task_role_arn" { type = string }
+variable "aws_account_id" { type = string }
+variable "aws_region" { type = string }
+variable "score_image_tag" { type = string }
+variable "athlete_image_tag" { type = string }
+variable "leaderboard_image_tag" { type = string }

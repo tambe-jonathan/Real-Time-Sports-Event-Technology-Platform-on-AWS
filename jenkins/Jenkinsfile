@@ -1,0 +1,211 @@
+pipeline {
+    agent none // Evaluated at the leaf-stage level to maximize worker flexibility
+
+    environment {
+        AWS_REGION      = 'us-east-1'
+        AWS_ACCOUNT_ID  = '186052668806'
+        ECR_REGISTRY    = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+        TF_APP_DIR      = 'infrastructure/environments/dev'
+        
+        SVC_1           = 'score-service'
+        SVC_2           = 'athlete-service'
+        SVC_3           = 'leaderboard-service'
+        
+        IMAGE_TAG       = "v${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Checkout Code') {
+            agent any
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Unit Tests') {
+            parallel {
+                stage('Score Service Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11-slim'
+                            reuseNode true
+                        }
+                    }
+                    steps {
+                        sh '''
+                            cd applications/score-service
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                            pip install pytest
+                            # Run pytest; if it exits with code 5 (no tests), treat it as success (0)
+                            pytest || [ $? -eq 5 ]
+                        '''
+                    }
+                }
+                stage('Athlete Service Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11-slim'
+                            reuseNode true
+                        }
+                    }
+                    steps {
+                        sh '''
+                            cd applications/athlete-service
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                            pip install pytest
+                            pytest || [ $? -eq 5 ]
+                        '''
+                    }
+                }
+                stage('Leaderboard Service Tests') {
+                    agent {
+                        docker {
+                            image 'python:3.11-slim'
+                            reuseNode true
+                        }
+                    }
+                    steps {
+                        sh '''
+                            cd applications/leaderboard-service
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install --upgrade pip
+                            pip install -r requirements.txt
+                            pip install pytest
+                            pytest || [ $? -eq 5 ]
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('SonarQube Quality Gate') {
+            agent {
+                docker {
+                    image 'sonarsource/sonar-scanner-cli:latest'
+                    reuseNode true
+                }
+            }
+            steps {
+                withSonarQubeEnv('sonar-token') {
+                    // Running directly inside the sonarsource container 
+                    // where 'sonar-scanner' is available in the global path
+                    sh 'sonar-scanner'
+                }
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Build & Scan Docker Images') {
+            parallel {
+                stage('Build Score Service') {
+                    agent any
+                    steps {
+                        sh "docker build -t ${SVC_1}:${IMAGE_TAG} applications/${SVC_1}"
+                        sh "trivy image --exit-code 1 --severity CRITICAL ${SVC_1}:${IMAGE_TAG}"
+                    }
+                }
+                stage('Build Athlete Service') {
+                    agent any
+                    steps {
+                        sh "docker build -t ${SVC_2}:${IMAGE_TAG} applications/${SVC_2}"
+                        sh "trivy image --exit-code 1 --severity CRITICAL ${SVC_2}:${IMAGE_TAG}"
+                    }
+                }
+                stage('Build Leaderboard Service') {
+                    agent any
+                    steps {
+                        sh "docker build -t ${SVC_3}:${IMAGE_TAG} applications/${SVC_3}"
+                        sh "trivy image --exit-code 1 --severity CRITICAL ${SVC_3}:${IMAGE_TAG}"
+                    }
+                }
+            }
+        }
+
+        stage('Push Images to ECR') {
+            agent any
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    script {
+                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+                        
+                        def services = [SVC_1, SVC_2, SVC_3]
+                        for (svc in services) {
+                            sh "docker tag ${svc}:${IMAGE_TAG} ${ECR_REGISTRY}/${svc}:${IMAGE_TAG}"
+                            sh "docker push ${ECR_REGISTRY}/${svc}:${IMAGE_TAG}"
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Plan App Deploy') {
+            agent any
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    dir("${TF_APP_DIR}") {
+                        sh 'terraform init'
+                        sh "terraform plan -var='score_image_tag=${IMAGE_TAG}' -var='athlete_image_tag=${IMAGE_TAG}' -var='leaderboard_image_tag=${IMAGE_TAG}' -out=tfapp.plan"
+                    }
+                }
+            }
+        }
+
+        stage('Manual Deployment Approval') {
+            agent any
+            steps {
+                timeout(time: 1, unit: 'HOURS') {
+                    input message: "Approve rolling update deployment for version ${IMAGE_TAG} to ECS?", ok: 'Deploy'
+                }
+            }
+        }
+
+        stage('Terraform Apply ECS Update') {
+            agent any
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    dir("${TF_APP_DIR}") {
+                        sh 'terraform apply -input=false tfapp.plan'
+                    }
+                }
+            }
+        }
+
+        stage('Smoke Test') {
+            agent any
+            steps {
+                echo 'Checking path-based microservice health routes via ALB...'
+                sh '''
+                    ALB_HOST="your-alb-dns-name"
+                    curl -f http://${ALB_HOST}/score/health || exit 1
+                    curl -f http://${ALB_HOST}/athlete/health || exit 1
+                    curl -f http://${ALB_HOST}/leaderboard/health || exit 1
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                node {
+                    cleanWs()
+                    
+                    def services = [SVC_1, SVC_2, SVC_3]
+                    for (svc in services) {
+                        sh "docker rmi ${svc}:${IMAGE_TAG} || true"
+                        sh "docker rmi ${ECR_REGISTRY}/${svc}:${IMAGE_TAG} || true"
+                    }
+                }
+            }
+        }
+    }
+}

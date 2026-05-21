@@ -1,0 +1,96 @@
+pipeline {
+    agent any
+    
+    tools {
+        terraform 'terraform' // Links the verified Linux binary path
+    }
+
+    environment {
+        AWS_REGION       = 'us-east-1'
+        TF_BOOTSTRAP_DIR = 'infrastructure/bootstrap' 
+        TF_DIR           = 'infrastructure/environments/dev'
+        // Set to 'true' only if deploying to a completely brand-new AWS account/region
+        RUN_BOOTSTRAP    = 'false' 
+    }
+
+    stages {
+        stage('Checkout Infrastructure Code') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Terraform Bootstrap Backend') {
+            when {
+                environment name: 'RUN_BOOTSTRAP', value: 'true'
+            }
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    dir("${TF_BOOTSTRAP_DIR}") {
+                        echo 'Initializing and applying local state bootstrap infrastructure...'
+                        sh 'terraform init -input=false'
+                        sh 'terraform validate'
+                        sh 'terraform apply -auto-approve -input=false'
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Init & Validate Core') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    dir("${TF_DIR}") {
+                        echo 'Initializing core infrastructure using the newly bootstrapped remote S3 backend...'
+                        sh 'terraform init -input=false'
+                        sh 'terraform validate'
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Plan Core') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    dir("${TF_DIR}") {
+                        sh '''
+                            terraform plan \
+                            -input=false \
+                            -var='score_image_tag=vInitial' \
+                            -var='athlete_image_tag=vInitial' \
+                            -var='leaderboard_image_tag=vInitial' \
+                            -out=tfinfra.plan
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Approval Gate') {
+            steps {
+                timeout(time: 30, unit: 'MINUTES') {
+                    input message: 'Apply infrastructure changes to AWS?', ok: 'Apply'
+                }
+            }
+        }
+
+        stage('Terraform Apply Core') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                    dir("${TF_DIR}") {
+                        sh 'terraform apply -input=false tfinfra.plan'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Foundational Infrastructure deployed successfully. Handing off orchestration to Application Pipeline...'
+            build job: 'EventPulse-App-Deployment', wait: false
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
